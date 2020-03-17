@@ -20,7 +20,7 @@ class FileLoader implements Latte\Loader
 	use Latte\Strict;
 
 	/** @var string|null */
-	private $baseDir;
+	protected $baseDir;
 
 
 	public function __construct($baseDir = null)
