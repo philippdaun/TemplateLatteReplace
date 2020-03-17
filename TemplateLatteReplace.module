@@ -1,6 +1,7 @@
 <?php namespace ProcessWire;
 
 use Latte\Engine;
+use Latte\Loaders\FileLoader;
 
 /**
  * Latte template engine support for ProcessWire.
@@ -210,15 +211,16 @@ class TemplateLatteReplace extends WireData implements Module, ConfigurableModul
         $paths = $this->wire('config')->paths;
 
         require_once __DIR__ . '/latte/latte.php';
+        require_once __DIR__ . '/CustomFileLoader.php';
 
         $latte = new Engine;
+        $latte->setLoader(new CustomFileLoader($this->removeDoubleSlashes($paths->templates . '/' . $this->viewsDir)));
         $latte->setTempDirectory($paths->cache . $this->cacheDir);
 
         // set default layout file (as of Latte 2.4)
         $latte->addProvider('coreParentFinder', function ($template) use ($paths, $view) {
             if (!$template->getReferenceType()) { // is not referenced, i.e. not included, is not layout itself, …
-                $path = $this->removeDoubleSlashes($paths->templates . '/' . $this->viewsDir . '/' . $this->defaultLayoutFile);
-
+                $path = $this->removeDoubleSlashes($this->defaultLayoutFile);
                 return $path;
             }
         });
@@ -249,18 +251,7 @@ class TemplateLatteReplace extends WireData implements Module, ConfigurableModul
         // enable template file with/without extension
         $viewFile = str_replace('.latte', '', $viewFile);
 
-        // if first character is "/", set viewRootDir empty
-        if (substr($viewFile, 0, 2) === '//') {
-            $viewRootDir = '';
-            // remove the starting "//" characters
-            $viewFile = substr($viewFile, 2);
-        } else {
-            $viewRootDir = $this->wire('config')->paths->templates . $this->viewsDir . '/';
-        }
-
-        $viewRootDir = $this->removeDoubleSlashes($viewRootDir);
-
-        $markup = $latte->renderToString($viewRootDir . $viewFile . '.latte', (array)$view);
+        $markup = $latte->renderToString($viewFile . '.latte', (array) $view);
 
         if (isset($view->json_encode) && (bool)$view->json_encode) {
             $markup = json_encode($markup, $view->json_encode);
