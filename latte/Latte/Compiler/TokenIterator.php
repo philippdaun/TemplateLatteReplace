@@ -29,7 +29,7 @@ class TokenIterator
 
 
 	/**
-	 * @param  array[]
+	 * @param  array[]  $tokens
 	 */
 	public function __construct(array $tokens)
 	{
@@ -39,9 +39,8 @@ class TokenIterator
 
 	/**
 	 * Returns current token.
-	 * @return array|null
 	 */
-	public function currentToken()
+	public function currentToken(): ?array
 	{
 		return $this->tokens[$this->position] ?? null;
 	}
@@ -49,22 +48,18 @@ class TokenIterator
 
 	/**
 	 * Returns current token value.
-	 * @return string|null
 	 */
-	public function currentValue()
+	public function currentValue(): ?string
 	{
-		return isset($this->tokens[$this->position])
-			? $this->tokens[$this->position][Tokenizer::VALUE]
-			: null;
+		return $this->tokens[$this->position][Tokenizer::VALUE] ?? null;
 	}
 
 
 	/**
 	 * Returns next token.
-	 * @param  int|string  (optional) desired token type or value
-	 * @return array|null
+	 * @param  int|string  ...$args  desired token type or value
 	 */
-	public function nextToken(...$args)
+	public function nextToken(...$args): ?array
 	{
 		return $this->scan($args, true, true); // onlyFirst, advance
 	}
@@ -72,10 +67,9 @@ class TokenIterator
 
 	/**
 	 * Returns next token value.
-	 * @param  int|string  (optional) desired token type or value
-	 * @return string|null
+	 * @param  int|string  ...$args  desired token type or value
 	 */
-	public function nextValue(...$args)
+	public function nextValue(...$args): ?string
 	{
 		return $this->scan($args, true, true, true); // onlyFirst, advance, strings
 	}
@@ -83,7 +77,7 @@ class TokenIterator
 
 	/**
 	 * Returns all next tokens.
-	 * @param  int|string  (optional) desired token type or value
+	 * @param  int|string  ...$args  desired token type or value
 	 * @return array[]
 	 */
 	public function nextAll(...$args): array
@@ -94,7 +88,7 @@ class TokenIterator
 
 	/**
 	 * Returns all next tokens until it sees a given token type or value.
-	 * @param  int|string  token type or value to stop before
+	 * @param  int|string  ...$args  token type or value to stop before (required)
 	 * @return array[]
 	 */
 	public function nextUntil(...$args): array
@@ -105,7 +99,7 @@ class TokenIterator
 
 	/**
 	 * Returns concatenation of all next token values.
-	 * @param  int|string  (optional) token type or value to be joined
+	 * @param  int|string  ...$args  token type or value to be joined
 	 */
 	public function joinAll(...$args): string
 	{
@@ -115,7 +109,7 @@ class TokenIterator
 
 	/**
 	 * Returns concatenation of all next tokens until it sees a given token type or value.
-	 * @param  int|string  token type or value to stop before
+	 * @param  int|string  ...$args  token type or value to stop before (required)
 	 */
 	public function joinUntil(...$args): string
 	{
@@ -125,7 +119,7 @@ class TokenIterator
 
 	/**
 	 * Checks the current token.
-	 * @param  int|string  token type or value
+	 * @param  int|string  ...$args  token type or value
 	 */
 	public function isCurrent(...$args): bool
 	{
@@ -134,13 +128,13 @@ class TokenIterator
 		}
 		$token = $this->tokens[$this->position];
 		return in_array($token[Tokenizer::VALUE], $args, true)
-			|| in_array($token[Tokenizer::TYPE] ?? null, $args, true);
+			|| in_array($token[Tokenizer::TYPE], $args, true);
 	}
 
 
 	/**
 	 * Checks the next token existence.
-	 * @param  int|string  (optional) token type or value
+	 * @param  int|string  ...$args  token type or value
 	 */
 	public function isNext(...$args): bool
 	{
@@ -150,7 +144,7 @@ class TokenIterator
 
 	/**
 	 * Checks the previous token existence.
-	 * @param  int|string  (optional) token type or value
+	 * @param  int|string  ...$args  token type or value
 	 */
 	public function isPrev(...$args): bool
 	{
@@ -160,10 +154,10 @@ class TokenIterator
 
 	/**
 	 * Returns next expected token or throws exception.
-	 * @param  int|string  (optional) desired token type or value
+	 * @param  int|string  ...$args  desired token type or value
 	 * @throws CompileException
 	 */
-	public function expectNextValue(...$args): string
+	public function consumeValue(...$args): string
 	{
 		if ($token = $this->scan($args, true, true)) { // onlyFirst, advance
 			return $token[Tokenizer::VALUE];
@@ -172,13 +166,11 @@ class TokenIterator
 		while (($next = $this->tokens[$pos] ?? null) && in_array($next[Tokenizer::TYPE], $this->ignored, true)) {
 			$pos++;
 		}
-		throw new CompileException("Unexpected token '" . $next[Tokenizer::VALUE] . "'.");
+		throw new CompileException($next ? "Unexpected token '" . $next[Tokenizer::VALUE] . "'." : 'Unexpected end.');
 	}
 
 
-	/**
-	 * @return static
-	 */
+	/** @return static */
 	public function reset()
 	{
 		$this->position = -1;
@@ -189,7 +181,7 @@ class TokenIterator
 	/**
 	 * Moves cursor to next token.
 	 */
-	protected function next()
+	protected function next(): void
 	{
 		$this->position++;
 	}
@@ -197,7 +189,7 @@ class TokenIterator
 
 	/**
 	 * Looks for (first) (not) wanted tokens.
-	 * @param  array of desired token types or values
+	 * @param  array  $wanted  of desired token types or values
 	 * @return mixed
 	 */
 	protected function scan(array $wanted, bool $onlyFirst, bool $advance, bool $strings = false, bool $until = false, bool $prev = false)
@@ -206,15 +198,11 @@ class TokenIterator
 		$pos = $this->position + ($prev ? -1 : 1);
 		do {
 			if (!isset($this->tokens[$pos])) {
-				if (!$wanted && $advance && !$prev && $pos <= count($this->tokens)) {
-					$this->next();
-				}
 				return $res;
 			}
 
 			$token = $this->tokens[$pos];
-			$type = $token[Tokenizer::TYPE] ?? null;
-			if (!$wanted || (in_array($token[Tokenizer::VALUE], $wanted, true) || in_array($type, $wanted, true)) ^ $until) {
+			if (!$wanted || (in_array($token[Tokenizer::VALUE], $wanted, true) || in_array($token[Tokenizer::TYPE], $wanted, true)) ^ $until) {
 				while ($advance && !$prev && $pos > $this->position) {
 					$this->next();
 				}
@@ -227,7 +215,7 @@ class TokenIterator
 					$res[] = $token;
 				}
 
-			} elseif ($until || !in_array($type, $this->ignored, true)) {
+			} elseif ($until || !in_array($token[Tokenizer::TYPE], $this->ignored, true)) {
 				return $res;
 			}
 			$pos += $prev ? -1 : 1;

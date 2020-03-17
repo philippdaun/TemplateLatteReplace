@@ -13,26 +13,28 @@ namespace Latte;
 /**
  * Template loader.
  */
-interface ILoader
+interface Loader
 {
-
 	/**
 	 * Returns template source code.
 	 */
-	function getContent($name): string;
+	function getContent($name);
 
 	/**
 	 * Checks whether template is expired.
 	 */
-	function isExpired($name, $time): bool;
+	function isExpired($name, $time);
 
 	/**
 	 * Returns referred template name.
 	 */
-	function getReferredName($name, $referringName): string;
+	function getReferredName($name, $referringName);
 
 	/**
 	 * Returns unique identifier for caching.
 	 */
-	function getUniqueId($name): string;
+	function getUniqueId($name);
 }
+
+
+interface_exists(ILoader::class);

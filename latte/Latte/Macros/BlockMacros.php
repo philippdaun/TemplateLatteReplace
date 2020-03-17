@@ -22,20 +22,23 @@ use Latte\Runtime\SnippetDriver;
  */
 class BlockMacros extends MacroSet
 {
+	/** @var string */
+	public $snippetAttribute = 'id';
+
 	/** @var array */
 	private $namedBlocks = [];
 
 	/** @var array */
 	private $blockTypes = [];
 
-	/** @var bool */
+	/** @var string|bool|null */
 	private $extends;
 
 	/** @var string[] */
 	private $imports;
 
 
-	public static function install(Latte\Compiler $compiler)
+	public static function install(Latte\Compiler $compiler): void
 	{
 		$me = new static($compiler);
 		$me->addMacro('include', [$me, 'macroInclude']);
@@ -101,14 +104,18 @@ class BlockMacros extends MacroSet
 	{
 		$node->replaced = false;
 		$destination = $node->tokenizer->fetchWord(); // destination [,] [params]
-		if (!preg_match('~#|[\w-]+\z~A', $destination)) {
+		if (!$destination || !preg_match('~#|[\w-]+$~DA', $destination)) {
 			return false;
 		}
 
 		$destination = ltrim($destination, '#');
 		$parent = $destination === 'parent';
 		if ($destination === 'parent' || $destination === 'this') {
-			for ($item = $node->parentNode; $item && $item->name !== 'block' && !isset($item->data->name); $item = $item->parentNode);
+			for (
+				$item = $node->parentNode;
+				$item && $item->name !== 'block' && !isset($item->data->name);
+				$item = $item->parentNode
+			);
 			if (!$item) {
 				throw new CompileException("Cannot include $destination block outside of any block.");
 			}
@@ -211,7 +218,8 @@ class BlockMacros extends MacroSet
 			return $node->modifiers === '' ? '' : 'ob_start(function () {})';
 
 		} elseif ($node->name === 'define' && $node->modifiers) {
-			throw new CompileException('Modifiers are not allowed in ' . $node->getNotation());
+			$node->setArgs($node->args . $node->modifiers);
+			$node->tokenizer->fetchWord();
 		}
 
 		$node->data->name = $name = ltrim((string) $name, '#');
@@ -222,7 +230,15 @@ class BlockMacros extends MacroSet
 
 		} elseif (strpos($name, '$') !== false) { // dynamic block/snippet
 			if ($node->name === 'snippet') {
-				for ($parent = $node->parentNode; $parent && !($parent->name === 'snippet' || $parent->name === 'snippetArea'); $parent = $parent->parentNode);
+				if ($node->prefix && isset($node->htmlNode->attrs[$this->snippetAttribute])) {
+					throw new CompileException("Cannot combine HTML attribute $this->snippetAttribute with n:snippet.");
+				}
+
+				for (
+					$parent = $node->parentNode;
+					$parent && !($parent->name === 'snippet' || $parent->name === 'snippetArea');
+					$parent = $parent->parentNode
+				);
 				if (!$parent) {
 					throw new CompileException('Dynamic snippets are allowed only inside static snippet/snippetArea.');
 				}
@@ -232,12 +248,12 @@ class BlockMacros extends MacroSet
 				$enterCode = '$this->global->snippetDriver->enter(' . $writer->formatWord($name) . ', "' . SnippetDriver::TYPE_DYNAMIC . '");';
 
 				if ($node->prefix) {
-					$node->attrCode = $writer->write("<?php echo ' id=\"' . htmlSpecialChars(\$this->global->snippetDriver->getHtmlId({$writer->formatWord($name)})) . '\"' ?>");
+					$node->attrCode = $writer->write("<?php echo ' $this->snippetAttribute=\"' . htmlSpecialChars(\$this->global->snippetDriver->getHtmlId({$writer->formatWord($name)})) . '\"' ?>");
 					return $writer->write($enterCode);
 				}
 				$node->closingCode .= "\n</div>";
 				$this->checkExtraArgs($node);
-				return $writer->write("?>\n<div id=\"<?php echo htmlSpecialChars(\$this->global->snippetDriver->getHtmlId({$writer->formatWord($name)})) ?>\"><?php " . $enterCode);
+				return $writer->write("?>\n<div $this->snippetAttribute=\"<?php echo htmlSpecialChars(\$this->global->snippetDriver->getHtmlId({$writer->formatWord($name)})) ?>\"><?php " . $enterCode);
 
 			} else {
 				$node->data->leave = true;
@@ -260,12 +276,15 @@ class BlockMacros extends MacroSet
 				return "\$this->checkBlockContentType($blockType, $fname);"
 					. "\$this->blockQueue[$fname][] = [\$this, '{$node->data->func}'];";
 			}
+
+		} elseif ($name[0] === '_') {
+			throw new CompileException("Block name '$name' must not start with an underscore.");
 		}
 
 		// static snippet/snippetArea
 		if ($node->name === 'snippet' || $node->name === 'snippetArea') {
-			if ($node->prefix && isset($node->htmlNode->attrs['id'])) {
-				throw new CompileException('Cannot combine HTML attribute id with n:snippet.');
+			if ($node->prefix && isset($node->htmlNode->attrs[$this->snippetAttribute])) {
+				throw new CompileException("Cannot combine HTML attribute $this->snippetAttribute with n:snippet.");
 			}
 			$node->data->name = $name = '_' . $name;
 		}
@@ -295,11 +314,11 @@ class BlockMacros extends MacroSet
 				if (isset($node->htmlNode->macroAttrs['foreach'])) {
 					trigger_error('Combination of n:snippet with n:foreach is invalid, use n:inner-foreach.', E_USER_WARNING);
 				}
-				$node->attrCode = $writer->write('<?php echo \' id="\' . htmlSpecialChars($this->global->snippetDriver->getHtmlId(%var)) . \'"\' ?>', (string) substr($name, 1));
+				$node->attrCode = $writer->write("<?php echo ' $this->snippetAttribute=\"' . htmlSpecialChars(\$this->global->snippetDriver->getHtmlId(%var)) . '\"' ?>", (string) substr($name, 1));
 				return $writer->write($include, $name);
 			}
 			$this->checkExtraArgs($node);
-			return $writer->write("?>\n<div id=\"<?php echo htmlSpecialChars(\$this->global->snippetDriver->getHtmlId(%var)) ?>\"><?php $include ?>\n</div><?php ",
+			return $writer->write("?>\n<div $this->snippetAttribute=\"<?php echo htmlSpecialChars(\$this->global->snippetDriver->getHtmlId(%var)) ?>\"><?php $include ?>\n</div><?php ",
 				(string) substr($name, 1), $name
 			);
 
@@ -307,9 +326,12 @@ class BlockMacros extends MacroSet
 			$tokens = $node->tokenizer;
 			$args = [];
 			while ($tokens->isNext()) {
-				$args[] = $tokens->expectNextValue($tokens::T_VARIABLE);
+				if ($tokens->nextToken($tokens::T_SYMBOL, '?', 'null', '\\')) { // type
+					$tokens->nextAll($tokens::T_SYMBOL, '\\', '|', '[', ']', 'null');
+				}
+				$args[] = $tokens->consumeValue($tokens::T_VARIABLE);
 				if ($tokens->isNext()) {
-					$tokens->expectNextValue(',');
+					$tokens->consumeValue(',');
 				}
 			}
 			if ($args) {
@@ -342,14 +364,14 @@ class BlockMacros extends MacroSet
 				$node->content = '<?php $this->global->snippetDriver->enter('
 					. $writer->formatWord(substr($node->data->name, 1))
 					. ', "' . $type . '"); ?>'
-					. preg_replace('#(?<=\n)[ \t]+\z#', '', $node->content) . '<?php $this->global->snippetDriver->leave(); ?>';
+					. preg_replace('#(?<=\n)[ \t]+$#D', '', $node->content) . '<?php $this->global->snippetDriver->leave(); ?>';
 			}
 			if (empty($node->data->leave)) {
 				if (preg_match('#\$|n:#', $node->content)) {
 					$node->content = '<?php ' . (isset($node->data->args) ? 'extract($this->params); ' . $node->data->args : 'extract($_args);') . ' ?>'
 						. $node->content;
 				}
-				$this->namedBlocks[$node->data->name] = $tmp = preg_replace('#^\n+|(?<=\n)[ \t]+\z#', '', $node->content);
+				$this->namedBlocks[$node->data->name] = $tmp = preg_replace('#^\n+|(?<=\n)[ \t]+$#D', '', $node->content);
 				$node->content = substr_replace($node->content, $node->openingCode . "\n", strspn($node->content, "\n"), strlen($tmp));
 				$node->openingCode = '<?php ?>';
 
@@ -385,12 +407,12 @@ class BlockMacros extends MacroSet
 		if ($node->modifiers) {
 			throw new CompileException('Modifiers are not allowed in ' . $node->getNotation());
 		}
-		if (!preg_match('~#|[\w-]+\z~A', $node->args)) {
+		if (!preg_match('~#|[\w-]+$~DA', $node->args)) {
 			return false;
 		}
 		$list = [];
 		while (($name = $node->tokenizer->fetchWord()) !== null) {
-			$list[] = preg_match('~#|[\w-]+\z~A', $name)
+			$list[] = preg_match('~#|[\w-]+$~DA', $name)
 				? '$this->blockQueue["' . ltrim($name, '#') . '"]'
 				: $writer->formatArgs(new Latte\MacroTokens($name));
 		}
@@ -399,7 +421,7 @@ class BlockMacros extends MacroSet
 	}
 
 
-	private function generateMethodName($blockName)
+	private function generateMethodName(string $blockName): string
 	{
 		$clean = trim(preg_replace('#\W+#', '_', $blockName), '_');
 		$name = 'block' . ucfirst($clean);

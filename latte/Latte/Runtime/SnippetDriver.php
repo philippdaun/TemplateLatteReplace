@@ -20,7 +20,8 @@ class SnippetDriver
 {
 	use Latte\Strict;
 
-	const TYPE_STATIC = 'static',
+	public const
+		TYPE_STATIC = 'static',
 		TYPE_DYNAMIC = 'dynamic',
 		TYPE_AREA = 'area';
 
@@ -33,23 +34,24 @@ class SnippetDriver
 	/** @var bool */
 	private $renderingSnippets = false;
 
-	/** @var ISnippetBridge */
+	/** @var SnippetBridge */
 	private $bridge;
 
 
-	public function __construct(ISnippetBridge $bridge)
+	public function __construct(SnippetBridge $bridge)
 	{
 		$this->bridge = $bridge;
 	}
 
 
-	public function enter($name, $type)
+	public function enter(string $name, string $type): void
 	{
 		if (!$this->renderingSnippets) {
 			return;
 		}
 		$obStarted = false;
-		if (($this->nestingLevel === 0 && $this->bridge->needsRedraw($name))
+		if (
+			($this->nestingLevel === 0 && $this->bridge->needsRedraw($name))
 			|| ($type === self::TYPE_DYNAMIC && ($previous = end($this->stack)) && $previous[1] === true)
 		) {
 			ob_start(function () {});
@@ -63,12 +65,12 @@ class SnippetDriver
 	}
 
 
-	public function leave()
+	public function leave(): void
 	{
 		if (!$this->renderingSnippets) {
 			return;
 		}
-		list($name, $obStarted) = array_pop($this->stack);
+		[$name, $obStarted] = array_pop($this->stack);
 		if ($this->nestingLevel > 0 && --$this->nestingLevel === 0) {
 			$content = ob_get_clean();
 			$this->bridge->addSnippet($name, $content);
@@ -78,13 +80,13 @@ class SnippetDriver
 	}
 
 
-	public function getHtmlId($name)
+	public function getHtmlId(string $name): string
 	{
 		return $this->bridge->getHtmlId($name);
 	}
 
 
-	public function renderSnippets(array $blocks, array $params)
+	public function renderSnippets(array $blocks, array $params): bool
 	{
 		if ($this->renderingSnippets || !$this->bridge->isSnippetMode()) {
 			return false;

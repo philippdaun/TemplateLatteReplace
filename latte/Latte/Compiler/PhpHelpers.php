@@ -16,7 +16,6 @@ namespace Latte;
  */
 class PhpHelpers
 {
-
 	/**
 	 * Optimizes code readability.
 	 */
@@ -30,7 +29,7 @@ class PhpHelpers
 
 		foreach ($tokens as $n => $token) {
 			if (is_array($token)) {
-				list($name, $token) = ($tmp = $token);
+				[$name, $token] = ($tmp = $token);
 				if ($name === T_INLINE_HTML) {
 					$res .= $token;
 
@@ -111,13 +110,13 @@ class PhpHelpers
 	}
 
 
-	public static function dump($value)
+	public static function dump($value): string
 	{
 		if (is_array($value)) {
 			$s = "[\n";
 			foreach ($value as $k => $v) {
 				$v = is_array($v) && (!$v || array_keys($v) === range(0, count($v) - 1))
-					? '[' . implode(', ', array_map(function ($s) { return var_export($s, true); }, $v)) . ']'
+					? '[' . implode(', ', array_map(function ($s): string { return var_export($s, true); }, $v)) . ']'
 					: var_export($v, true);
 				$s .= "\t\t" . var_export($k, true) . ' => ' . $v . ",\n";
 			}
