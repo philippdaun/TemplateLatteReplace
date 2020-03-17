@@ -18,20 +18,20 @@ class Parser
 	use Strict;
 
 	/** @internal regular expression for single & double quoted PHP string */
-	const RE_STRING = '\'(?:\\\\.|[^\'\\\\])*+\'|"(?:\\\\.|[^"\\\\])*+"';
+	public const RE_STRING = '\'(?:\\\\.|[^\'\\\\])*+\'|"(?:\\\\.|[^"\\\\])*+"';
 
 	/** @internal special HTML attribute prefix */
-	const N_PREFIX = 'n:';
+	public const N_PREFIX = 'n:';
 
 	/** Context-aware escaping content types */
-	const
+	public const
 		CONTENT_HTML = Engine::CONTENT_HTML,
 		CONTENT_XHTML = Engine::CONTENT_XHTML,
 		CONTENT_XML = Engine::CONTENT_XML,
 		CONTENT_TEXT = Engine::CONTENT_TEXT;
 
 	/** @internal states */
-	const
+	public const
 		CONTEXT_NONE = 'none',
 		CONTEXT_MACRO = 'macro',
 		CONTEXT_HTML_TEXT = 'htmlText',
@@ -65,10 +65,10 @@ class Parser
 	/** @var array */
 	private $context = [self::CONTEXT_HTML_TEXT, null];
 
-	/** @var string */
+	/** @var string|null */
 	private $lastHtmlTag;
 
-	/** @var string used by filter() */
+	/** @var string|null used by filter() */
 	private $syntaxEndTag;
 
 	/** @var int */
@@ -127,7 +127,7 @@ class Parser
 	private function contextHtmlText()
 	{
 		$matches = $this->match('~
-			(?:(?<=\n|^)[ \t]*)?<(?P<closing>/?)(?P<tag>[a-z][a-z0-9:]*)|  ##  begin of HTML tag <tag </tag - ignores <!DOCTYPE
+			(?:(?<=\n|^)[ \t]*)?<(?P<closing>/?)(?P<tag>[a-z][a-z0-9:_.-]*)|  ##  begin of HTML tag <tag </tag - ignores <!DOCTYPE
 			<(?P<htmlcomment>!(?:--(?!>))?|\?)|     ##  begin of <!, <!--, <!DOCTYPE, <?
 			(?P<macro>' . $this->delimiters[0] . ')
 		~xsi');
@@ -185,7 +185,8 @@ class Parser
 
 		if (!empty($matches['end'])) { // end of HTML tag />
 			$this->addToken(Token::HTML_TAG_END, $matches[0]);
-			$this->setContext(!$this->xmlMode && in_array($this->lastHtmlTag, ['script', 'style'], true) ? self::CONTEXT_HTML_CDATA : self::CONTEXT_HTML_TEXT);
+			$empty = strpos($matches[0], '/') !== false;
+			$this->setContext(!$this->xmlMode && !$empty && in_array($this->lastHtmlTag, ['script', 'style'], true) ? self::CONTEXT_HTML_CDATA : self::CONTEXT_HTML_TEXT);
 
 		} elseif (isset($matches['attr']) && $matches['attr'] !== '') { // HTML attribute
 			$token = $this->addToken(Token::HTML_ATTRIBUTE_BEGIN, $matches[0]);
@@ -262,10 +263,10 @@ class Parser
 	/**
 	 * Handles CONTEXT_MACRO.
 	 */
-	private function contextMacro()
+	private function contextMacro(): void
 	{
 		$matches = $this->match('~
-			(?P<comment>\\*.*?\\*' . $this->delimiters[1] . '\n{0,2})|
+			(?P<comment>\*.*?\*' . $this->delimiters[1] . '\n{0,2})|
 			(?P<macro>(?>
 				' . self::RE_STRING . '|
 				\{(?>' . self::RE_STRING . '|[^\'"{}])*+\}|
@@ -277,7 +278,7 @@ class Parser
 
 		if (!empty($matches['macro'])) {
 			$token = $this->addToken(Token::MACRO_TAG, $this->context[1][1] . $matches[0]);
-			list($token->name, $token->value, $token->modifiers, $token->empty, $token->closing) = $this->parseMacroTag($matches['macro']);
+			[$token->name, $token->value, $token->modifiers, $token->empty, $token->closing] = $this->parseMacroTag($matches['macro']);
 			$this->context = $this->context[1][0];
 
 		} elseif (!empty($matches['comment'])) {
@@ -290,7 +291,7 @@ class Parser
 	}
 
 
-	private function processMacro($matches)
+	private function processMacro(array $matches)
 	{
 		if (!empty($matches['macro'])) { // {macro} or {* *}
 			$this->setContext(self::CONTEXT_MACRO, [$this->context, $matches['macro']]);
@@ -325,7 +326,7 @@ class Parser
 
 
 	/**
-	 * @param  string  Parser::CONTENT_HTML, CONTENT_XHTML, CONTENT_XML or CONTENT_TEXT
+	 * @param  string  $type  Parser::CONTENT_HTML, CONTENT_XHTML, CONTENT_XML or CONTENT_TEXT
 	 * @return static
 	 */
 	public function setContentType(string $type)
@@ -340,10 +341,8 @@ class Parser
 	}
 
 
-	/**
-	 * @return static
-	 */
-	public function setContext($context, $quote = null)
+	/** @return static */
+	public function setContext(string $context, $quote = null)
 	{
 		$this->context = [$context, $quote];
 		return $this;
@@ -367,9 +366,7 @@ class Parser
 
 
 	/**
-	 * Changes macro tag delimiters.
-	 * @param  string  left regular expression
-	 * @param  string  right regular expression
+	 * Changes macro tag delimiters (as regular expression).
 	 * @return static
 	 */
 	public function setDelimiters(string $left, string $right)
@@ -381,11 +378,10 @@ class Parser
 
 	/**
 	 * Parses macro tag to name, arguments a modifiers parts.
-	 * @param  string {name arguments | modifiers}
-	 * @return array|null
+	 * @param  string  $tag  {name arguments | modifiers}
 	 * @internal
 	 */
-	public function parseMacroTag(string $tag)
+	public function parseMacroTag(string $tag): ?array
 	{
 		if (!preg_match('~^
 			(?P<closing>/?)
@@ -394,8 +390,8 @@ class Parser
 				(?P<shortname>[=\~#%^&_]?)      ## expression, =expression, ...
 			)(?P<args>(?:' . self::RE_STRING . '|[^\'"])*?)
 			(?P<modifiers>(?<!\|)\|[a-z](?P<modArgs>(?:' . self::RE_STRING . '|(?:\((?P>modArgs)\))|[^\'"/()]|/(?=.))*+))?
-			(?P<empty>/?\z)
-		()\z~isx', $tag, $match)) {
+			(?P<empty>/?$)
+		()$~Disx', $tag, $match)) {
 			if (preg_last_error()) {
 				throw new RegexpException(null, preg_last_error());
 			}
@@ -408,7 +404,7 @@ class Parser
 	}
 
 
-	private function addToken($type, $text): Token
+	private function addToken(string $type, string $text): Token
 	{
 		$this->output[] = $token = new Token;
 		$token->type = $type;
@@ -429,7 +425,7 @@ class Parser
 	/**
 	 * Process low-level macros.
 	 */
-	protected function filter(Token $token)
+	protected function filter(Token $token): void
 	{
 		if ($token->type === Token::MACRO_TAG && $token->name === '/syntax') {
 			$this->setSyntax($this->defaultSyntax);

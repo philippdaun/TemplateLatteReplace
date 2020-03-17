@@ -15,7 +15,8 @@ namespace Latte;
  */
 class MacroTokens extends TokenIterator
 {
-	const T_WHITESPACE = 1,
+	public const
+		T_WHITESPACE = 1,
 		T_COMMENT = 2,
 		T_SYMBOL = 3,
 		T_NUMBER = 4,
@@ -28,12 +29,12 @@ class MacroTokens extends TokenIterator
 	/** @var int */
 	public $depth = 0;
 
-	/** @var Tokenizer */
+	/** @var Tokenizer|null */
 	private static $tokenizer;
 
 
 	/**
-	 * @param  string|array
+	 * @param  string|array  $input
 	 */
 	public function __construct($input = [])
 	{
@@ -42,7 +43,7 @@ class MacroTokens extends TokenIterator
 	}
 
 
-	public function parse($s)
+	public function parse(string $s): array
 	{
 		self::$tokenizer = self::$tokenizer ?: new Tokenizer([
 			self::T_WHITESPACE => '\s+',
@@ -63,7 +64,7 @@ class MacroTokens extends TokenIterator
 	 * Appends simple token or string (will be parsed).
 	 * @return static
 	 */
-	public function append($val, $position = null)
+	public function append($val, int $position = null)
 	{
 		if ($val != null) { // intentionally @
 			array_splice(
@@ -92,9 +93,8 @@ class MacroTokens extends TokenIterator
 
 	/**
 	 * Reads single token (optionally delimited by comma) from string.
-	 * @return string|null
 	 */
-	public function fetchWord()
+	public function fetchWord(): ?string
 	{
 		$words = $this->fetchWords();
 		return $words ? implode(':', $words) : null;
@@ -127,7 +127,7 @@ class MacroTokens extends TokenIterator
 	}
 
 
-	protected function next()
+	protected function next(): void
 	{
 		parent::next();
 		if ($this->isCurrent('[', '(', '{')) {

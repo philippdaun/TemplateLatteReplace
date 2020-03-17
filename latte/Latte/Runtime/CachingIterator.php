@@ -41,7 +41,7 @@ class CachingIterator extends \CachingIterator implements \Countable
 		} elseif ($iterator instanceof \IteratorAggregate) {
 			do {
 				$iterator = $iterator->getIterator();
-			} while ($iterator instanceof \IteratorAggregate);
+			} while (!$iterator instanceof \Iterator);
 
 		} elseif ($iterator instanceof \Traversable) {
 			if (!$iterator instanceof \Iterator) {
@@ -57,7 +57,7 @@ class CachingIterator extends \CachingIterator implements \Countable
 
 	/**
 	 * Is the current element the first one?
-	 * @param  int  grid width
+	 * @param  int  $width
 	 */
 	public function isFirst(int $width = null): bool
 	{
@@ -67,7 +67,7 @@ class CachingIterator extends \CachingIterator implements \Countable
 
 	/**
 	 * Is the current element the last one?
-	 * @param  int  grid width
+	 * @param  int  $width
 	 */
 	public function isLast(int $width = null): bool
 	{
@@ -112,6 +112,15 @@ class CachingIterator extends \CachingIterator implements \Countable
 
 
 	/**
+	 * Returns the counter as string
+	 */
+	public function __toString(): string
+	{
+		return (string) $this->counter;
+	}
+
+
+	/**
 	 * Returns the count of elements.
 	 */
 	public function count(): int
@@ -128,9 +137,8 @@ class CachingIterator extends \CachingIterator implements \Countable
 
 	/**
 	 * Forwards to the next element.
-	 * @return void
 	 */
-	public function next()
+	public function next(): void
 	{
 		parent::next();
 		if (parent::valid()) {
@@ -141,9 +149,8 @@ class CachingIterator extends \CachingIterator implements \Countable
 
 	/**
 	 * Rewinds the Iterator.
-	 * @return void
 	 */
-	public function rewind()
+	public function rewind(): void
 	{
 		parent::rewind();
 		$this->counter = parent::valid() ? 1 : 0;

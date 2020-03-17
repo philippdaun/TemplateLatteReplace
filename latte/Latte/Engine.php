@@ -17,10 +17,12 @@ class Engine
 {
 	use Strict;
 
-	const VERSION = '3.0.0-dev';
+	public const VERSION = '2.7.0';
+	public const VERSION_ID = 20700;
 
 	/** Content types */
-	const CONTENT_HTML = 'html',
+	public const
+		CONTENT_HTML = 'html',
 		CONTENT_XHTML = 'xhtml',
 		CONTENT_XML = 'xml',
 		CONTENT_JS = 'js',
@@ -31,17 +33,20 @@ class Engine
 	/** @var callable[] */
 	public $onCompile = [];
 
-	/** @var Parser */
+	/** @var Parser|null */
 	private $parser;
 
-	/** @var Compiler */
+	/** @var Compiler|null */
 	private $compiler;
 
-	/** @var ILoader */
+	/** @var Loader|null */
 	private $loader;
 
 	/** @var Runtime\FilterExecutor */
 	private $filters;
+
+	/** @var \stdClass */
+	private $functions;
 
 	/** @var array */
 	private $providers = [];
@@ -49,7 +54,7 @@ class Engine
 	/** @var string */
 	private $contentType = self::CONTENT_HTML;
 
-	/** @var string */
+	/** @var string|null */
 	private $tempDirectory;
 
 	/** @var bool */
@@ -62,26 +67,28 @@ class Engine
 	public function __construct()
 	{
 		$this->filters = new Runtime\FilterExecutor;
+		$this->functions = new \stdClass;
 	}
 
 
 	/**
 	 * Renders template to output.
-	 * @return void
+	 * @param  object|array  $params
 	 */
-	public function render($name, array $params = [], $block = null)
+	public function render(string $name, $params = [], string $block = null): void
 	{
-		$this->createTemplate($name, $params + ['_renderblock' => $block])
+		$this->createTemplate($name, (array) $params + ($block ? ['_renderblock' => $block] : []))
 			->render();
 	}
 
 
 	/**
 	 * Renders template to string.
+	 * @param  object|array  $params
 	 */
-	public function renderToString($name, array $params = [], $block = null): string
+	public function renderToString(string $name, $params = [], string $block = null): string
 	{
-		$template = $this->createTemplate($name, $params + ['_renderblock' => $block]);
+		$template = $this->createTemplate($name, (array) $params + ($block ? ['_renderblock' => $block] : []));
 		return $template->capture([$template, 'render']);
 	}
 
@@ -89,12 +96,13 @@ class Engine
 	/**
 	 * Creates template object.
 	 */
-	public function createTemplate($name, array $params = []): Runtime\Template
+	public function createTemplate(string $name, array $params = []): Runtime\Template
 	{
 		$class = $this->getTemplateClass($name);
 		if (!class_exists($class, false)) {
 			$this->loadTemplate($name);
 		}
+		$this->providers['fn'] = $this->functions;
 		return new $class($this, $params, $this->filters, $this->providers, $name);
 	}
 
@@ -102,7 +110,7 @@ class Engine
 	/**
 	 * Compiles template to PHP code.
 	 */
-	public function compile($name): string
+	public function compile(string $name): string
 	{
 		foreach ($this->onCompile ?: [] as $cb) {
 			(Helpers::checkCallback($cb))($this);
@@ -112,10 +120,13 @@ class Engine
 		$source = $this->getLoader()->getContent($name);
 
 		try {
-			$tokens = $this->getParser()->setContentType($this->contentType)
+			$tokens = $this->getParser()
+				->setContentType($this->contentType)
 				->parse($source);
 
-			$code = $this->getCompiler()->setContentType($this->contentType)
+			$code = $this->getCompiler()
+				->setContentType($this->contentType)
+				->setFunctions(array_keys((array) $this->functions))
 				->compile($tokens, $this->getTemplateClass($name));
 
 		} catch (\Exception $e) {
@@ -126,11 +137,11 @@ class Engine
 			throw $e->setSource($source, $line, $name);
 		}
 
-		if (!preg_match('#\n|\?#', $name)) {
-			$code = "<?php\n// source: $name\n?>" . $code;
-		}
 		if ($this->strictTypes) {
 			$code = "<?php\ndeclare(strict_types=1);\n?>" . $code;
+		}
+		if (!preg_match('#\n|\?#', $name)) {
+			$code = "<?php\n// source: $name\n?>" . $code;
 		}
 		$code = PhpHelpers::reformatCode($code);
 		return $code;
@@ -139,10 +150,9 @@ class Engine
 
 	/**
 	 * Compiles template to cache.
-	 * @return void
 	 * @throws \LogicException
 	 */
-	public function warmupCache(string $name)
+	public function warmupCache(string $name): void
 	{
 		if (!$this->tempDirectory) {
 			throw new \LogicException('Path to temporary directory is not set.');
@@ -155,14 +165,11 @@ class Engine
 	}
 
 
-	/**
-	 * @return void
-	 */
-	private function loadTemplate($name)
+	private function loadTemplate(string $name): void
 	{
 		if (!$this->tempDirectory) {
 			$code = $this->compile($name);
-			if (@eval('?>' . $code) === false) { // @ is escalated to exception
+			if (@eval(substr($code, 5)) === false) { // @ is escalated to exception, substr removes <?php
 				throw (new CompileException('Error in template: ' . error_get_last()['message']))
 					->setSource($code, error_get_last()['line'], "$name (compiled)");
 			}
@@ -175,13 +182,15 @@ class Engine
 			return;
 		}
 
-		if (!is_dir($this->tempDirectory)) {
-			@mkdir($this->tempDirectory); // @ - directory may already exist
+		if (!is_dir($this->tempDirectory) && !@mkdir($this->tempDirectory) && !is_dir($this->tempDirectory)) { // @ - dir may already exist
+			throw new \RuntimeException("Unable to create directory '$this->tempDirectory'. " . error_get_last()['message']);
 		}
 
-		$handle = fopen("$file.lock", 'c+');
-		if (!$handle || !flock($handle, LOCK_EX)) {
-			throw new \RuntimeException("Unable to acquire exclusive lock '$file.lock'.");
+		$handle = @fopen("$file.lock", 'c+'); // @ is escalated to exception
+		if (!$handle) {
+			throw new \RuntimeException("Unable to create file '$file.lock'. " . error_get_last()['message']);
+		} elseif (!@flock($handle, LOCK_EX)) { // @ is escalated to exception
+			throw new \RuntimeException("Unable to acquire exclusive lock on '$file.lock'. " . error_get_last()['message']);
 		}
 
 		if (!is_file($file) || $this->isExpired($file, $name)) {
@@ -210,17 +219,17 @@ class Engine
 	}
 
 
-	public function getCacheFile($name): string
+	public function getCacheFile(string $name): string
 	{
 		$hash = substr($this->getTemplateClass($name), 8);
-		$base = preg_match('#([/\\\\][\w@.-]{3,35}){1,3}\z#', $name, $m)
+		$base = preg_match('#([/\\\\][\w@.-]{3,35}){1,3}$#D', $name, $m)
 			? preg_replace('#[^\w@.-]+#', '-', substr($m[0], 1)) . '--'
 			: '';
 		return "$this->tempDirectory/$base$hash.php";
 	}
 
 
-	public function getTemplateClass($name): string
+	public function getTemplateClass(string $name): string
 	{
 		$key = $this->getLoader()->getUniqueId($name) . "\00" . self::VERSION;
 		return 'Template' . substr(md5($key), 0, 10);
@@ -229,10 +238,9 @@ class Engine
 
 	/**
 	 * Registers run-time filter.
-	 * @param  string|null
 	 * @return static
 	 */
-	public function addFilter($name, callable $callback)
+	public function addFilter(?string $name, callable $callback)
 	{
 		$this->filters->add($name, $callback);
 		return $this;
@@ -251,8 +259,6 @@ class Engine
 
 	/**
 	 * Call a run-time filter.
-	 * @param  string  filter name
-	 * @param  array   arguments
 	 * @return mixed
 	 */
 	public function invokeFilter(string $name, array $args)
@@ -265,9 +271,20 @@ class Engine
 	 * Adds new macro.
 	 * @return static
 	 */
-	public function addMacro($name, IMacro $macro)
+	public function addMacro(string $name, Macro $macro)
 	{
 		$this->getCompiler()->addMacro($name, $macro);
+		return $this;
+	}
+
+
+	/**
+	 * Registers run-time function.
+	 * @return static
+	 */
+	public function addFunction(string $name, callable $callback)
+	{
+		$this->functions->$name = $callback;
 		return $this;
 	}
 
@@ -276,7 +293,7 @@ class Engine
 	 * Adds new provider.
 	 * @return static
 	 */
-	public function addProvider($name, $value)
+	public function addProvider(string $name, $value)
 	{
 		$this->providers[$name] = $value;
 		return $this;
@@ -292,10 +309,8 @@ class Engine
 	}
 
 
-	/**
-	 * @return static
-	 */
-	public function setContentType($type)
+	/** @return static */
+	public function setContentType(string $type)
 	{
 		$this->contentType = $type;
 		return $this;
@@ -306,7 +321,7 @@ class Engine
 	 * Sets path to temporary directory.
 	 * @return static
 	 */
-	public function setTempDirectory($path)
+	public function setTempDirectory(?string $path)
 	{
 		$this->tempDirectory = $path;
 		return $this;
@@ -355,17 +370,15 @@ class Engine
 	}
 
 
-	/**
-	 * @return static
-	 */
-	public function setLoader(ILoader $loader)
+	/** @return static */
+	public function setLoader(Loader $loader)
 	{
 		$this->loader = $loader;
 		return $this;
 	}
 
 
-	public function getLoader(): ILoader
+	public function getLoader(): Loader
 	{
 		if (!$this->loader) {
 			$this->loader = new Loaders\FileLoader;

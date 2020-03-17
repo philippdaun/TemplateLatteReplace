@@ -17,11 +17,12 @@ class MacroNode
 {
 	use Strict;
 
-	const PREFIX_INNER = 'inner',
+	public const
+		PREFIX_INNER = 'inner',
 		PREFIX_TAG = 'tag',
 		PREFIX_NONE = 'none';
 
-	/** @var IMacro */
+	/** @var Macro */
 	public $macro;
 
 	/** @var string */
@@ -45,7 +46,7 @@ class MacroNode
 	/** @var MacroTokens */
 	public $tokenizer;
 
-	/** @var MacroNode */
+	/** @var MacroNode|null */
 	public $parentNode;
 
 	/** @var string */
@@ -66,7 +67,7 @@ class MacroNode
 	/** @var \stdClass  user data */
 	public $data;
 
-	/** @var HtmlNode  closest HTML node */
+	/** @var HtmlNode|null  closest HTML node */
 	public $htmlNode;
 
 	/** @var array [contentType, context] */
@@ -85,7 +86,7 @@ class MacroNode
 	public $saved;
 
 
-	public function __construct(IMacro $macro, $name, $args = null, $modifiers = null, self $parentNode = null, HtmlNode $htmlNode = null, $prefix = null)
+	public function __construct(Macro $macro, string $name, string $args = null, string $modifiers = null, self $parentNode = null, HtmlNode $htmlNode = null, string $prefix = null)
 	{
 		$this->macro = $macro;
 		$this->name = (string) $name;
@@ -98,14 +99,14 @@ class MacroNode
 	}
 
 
-	public function setArgs($args)
+	public function setArgs(?string $args): void
 	{
 		$this->args = (string) $args;
 		$this->tokenizer = new MacroTokens($this->args);
 	}
 
 
-	public function getNotation()
+	public function getNotation(): string
 	{
 		return $this->prefix
 			? Parser::N_PREFIX . ($this->prefix === self::PREFIX_NONE ? '' : $this->prefix . '-') . $this->name
